@@ -1,5 +1,6 @@
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, send_file, render_template_string, jsonify
 import os, uuid, subprocess
+from PIL import Image, ImageOps
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
@@ -36,39 +37,56 @@ HTML = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
 body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:25px}
-.menu,.box{max-width:500px;margin:20px auto}
-.box{background:#181820;padding:25px;border-radius:20px;display:none}
-button{width:100%;padding:15px;margin-top:10px;border-radius:12px;border:0;background:#00ff99}
-input{width:100%;padding:12px;margin-top:8px;border-radius:10px;border:0}
-.resultBox{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center}
-.resultCard{background:#181820;padding:30px;border-radius:22px}
+.box{background:#181820;padding:20px;border-radius:20px;max-width:420px;margin:auto}
+button{width:100%;padding:14px;margin-top:10px;border-radius:12px;border:0;background:#00ff99}
+input{width:100%;padding:10px;margin-top:8px;border-radius:10px;border:0}
+.progress{height:10px;background:#333;margin-top:10px;border-radius:10px;overflow:hidden}
+.bar{height:100%;width:0;background:#00ff99}
+.resultBox{position:fixed;inset:0;background:#000a;display:flex;justify-content:center;align-items:center}
+.card{background:#181820;padding:20px;border-radius:20px}
 </style>
 
 <script>
-function showBox(id){
- document.querySelectorAll('.box').forEach(b=>b.style.display='none');
- document.getElementById(id).style.display='block';
-}
-function limitGrade(i){
+function limit(i){
  if(i.value>100)i.value=100;
  if(i.value<0)i.value=0;
 }
-function closeResult(){
- document.getElementById("r").style.display="none";
+
+function convertPDF(){
+ let files=document.getElementById("pdfFiles").files;
+ let form=new FormData();
+
+ for(let f of files){
+   form.append("images",f);
+ }
+
+ let bar=document.getElementById("bar");
+ let p=0;
+
+ let fake=setInterval(()=>{
+   if(p<90){
+     p+=5;
+     bar.style.width=p+"%";
+   }
+ },200);
+
+ fetch("/images-to-pdf",{method:"POST",body:form})
+ .then(r=>r.json())
+ .then(d=>{
+   clearInterval(fake);
+   bar.style.width="100%";
+
+   document.getElementById("pdfResult").innerHTML =
+   `<br><a href="/download/${d.file}" style="color:#00ff99">تحميل PDF</a>`;
+ });
 }
-window.onload=function(){showBox("{{active}}")}
 </script>
 </head>
 
 <body>
 
-<div class="menu">
-<button onclick="showBox('mp3')">MP3 🔒</button>
-<button onclick="showBox('pdf')">PDF ⚡</button>
-<button onclick="showBox('grades')">النسبة</button>
-</div>
-
-<div id="mp3" class="box">
+<div class="box">
+<h3>تحويل MP3 🔒</h3>
 <form action="/convert-mp3" method="post" enctype="multipart/form-data">
 <input type="password" name="password" placeholder="الرقم السري">
 <input type="file" name="file">
@@ -76,28 +94,35 @@ window.onload=function(){showBox("{{active}}")}
 </form>
 </div>
 
-<div id="pdf" class="box">
-<form action="/images-to-pdf" method="post" enctype="multipart/form-data">
-<input type="file" name="images" multiple>
-<button>تحويل سريع ⚡</button>
-</form>
+<br>
+
+<div class="box">
+<h3>تحويل صور إلى PDF ⚡</h3>
+<input type="file" id="pdfFiles" multiple>
+<button onclick="convertPDF()">تحويل</button>
+
+<div class="progress"><div id="bar" class="bar"></div></div>
+<div id="pdfResult"></div>
 </div>
 
-<div id="grades" class="box">
+<br>
+
+<div class="box">
+<h3>حاسبة النسبة</h3>
 <form action="/grades" method="post">
 {% for n,w in subjects.items() %}
 {{n}} ({{w}}%)
-<input type="number" name="{{n}}" oninput="limitGrade(this)">
+<input type="number" name="{{n}}" oninput="limit(this)">
 {% endfor %}
 <button>احسب</button>
 </form>
 </div>
 
 {% if total %}
-<div id="r" class="resultBox">
-<div class="resultCard">
+<div class="resultBox">
+<div class="card">
 <h2>{{total}}%</h2>
-<button onclick="closeResult()">إغلاق</button>
+<a href="/">إغلاق</a>
 </div>
 </div>
 {% endif %}
@@ -108,7 +133,7 @@ window.onload=function(){showBox("{{active}}")}
 
 @app.route("/")
 def home():
-    return render_template_string(HTML, subjects=SUBJECTS, total=None, active="mp3")
+    return render_template_string(HTML, subjects=SUBJECTS, total=None)
 
 @app.route("/grades", methods=["POST"])
 def grades():
@@ -119,13 +144,13 @@ def grades():
             v=max(0,min(float(v),100))
             s+=v*w
     t=min(s/TOTAL_WEIGHT,100)
-    return render_template_string(HTML, subjects=SUBJECTS, total=round(t,2), active="grades")
+    return render_template_string(HTML, subjects=SUBJECTS, total=round(t,2))
 
-# ⚡ MP3 سريع
+# MP3 سريع
 @app.route("/convert-mp3", methods=["POST"])
 def mp3():
     if request.form.get("password")!=MP3_PASSWORD:
-        return "خطأ",403
+        return "الرقم السري غلط",403
 
     f=request.files.get("file")
     fid=str(uuid.uuid4())
@@ -142,26 +167,23 @@ def mp3():
 
     return f'<a href="/download/{fid}.mp3" download>تحميل MP3</a>'
 
-# ⚡🔥 PDF سريع جداً بدون فقد جودة
+# PDF سريع وثابت
 @app.route("/images-to-pdf", methods=["POST"])
 def pdf():
     files=request.files.getlist("images")
     fid=str(uuid.uuid4())
-
-    paths=[]
-    for i,f in enumerate(files):
-        p=f"{UPLOAD_DIR}/{fid}_{i}.jpg"
-        f.save(p)
-        paths.append(p)
-
     out=f"{OUTPUT_DIR}/{fid}.pdf"
 
-    subprocess.run(
-        ["ffmpeg","-y","-pattern_type","glob","-i",f"{UPLOAD_DIR}/{fid}_*.jpg","-c:v","copy",out],
-        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL
-    )
+    imgs=[]
+    for f in files:
+        img=Image.open(f.stream)
+        img=ImageOps.exif_transpose(img)
+        img=img.convert("RGB")
+        imgs.append(img)
 
-    return f'<a href="/download/{fid}.pdf" download>تحميل PDF</a>'
+    imgs[0].save(out,"PDF",save_all=True,append_images=imgs[1:])
+
+    return jsonify({"file":fid+".pdf"})
 
 @app.route("/download/<f>")
 def d(f):
