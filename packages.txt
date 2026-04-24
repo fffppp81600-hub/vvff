@@ -1,1 +1,10 @@
-ffmpeg
+cmd = [
+    "ffmpeg","-y",
+    "-i", inp,
+    "-vn",
+    "-acodec","libmp3lame",
+    "-b:a","128k",   # أخف = أسرع
+    "-preset","ultrafast",
+    "-threads","4",
+    out
+]
