@@ -1,15 +1,14 @@
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, send_file, render_template_string, jsonify
 import os, uuid, subprocess
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-MP3_PASSWORD = "7db"
+PASSWORD = "7db"
 
 SUBJECTS = {
     "رياضيات": 14.63,
@@ -26,8 +25,7 @@ SUBJECTS = {
     "نشاط": 2.44,
     "حياتيه": 2.44
 }
-
-TOTAL_WEIGHT = sum(SUBJECTS.values())
+TOTAL = sum(SUBJECTS.values())
 
 HTML = """
 <!DOCTYPE html>
@@ -35,33 +33,32 @@ HTML = """
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:20px}
-.box{background:#181820;padding:20px;border-radius:20px;max-width:400px;margin:auto;margin-top:15px}
-input,button{width:100%;padding:12px;margin-top:8px;border-radius:12px;border:0}
-button{background:#00ff99;font-weight:bold}
-.error{color:red;margin-top:5px}
-.resultBox{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center}
-.card{background:#181820;padding:20px;border-radius:20px}
+body{font-family:Arial;background:#0b0c10;color:white;padding:20px}
+.box{background:#181820;padding:20px;border-radius:20px;margin-top:15px}
+input,button{width:100%;padding:12px;margin-top:10px;border-radius:12px;border:0}
+button{background:#00f59b;font-weight:bold}
+.error{color:red}
+.resultBox{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center}
+.card{background:#181820;padding:20px;border-radius:20px;text-align:center}
 </style>
 
 <script>
+function toggle(id){
+ let el=document.getElementById(id);
+ el.style.display = el.style.display==="none"?"block":"none";
+}
+
 function limit(i){
  if(i.value>100)i.value=100;
  if(i.value<0)i.value=0;
-}
-
-function closeResult(){
- document.getElementById("r").style.display="none";
 }
 
 async function convertMP3(){
  let pass=document.getElementById("pass").value;
  let file=document.getElementById("file").files[0];
  let err=document.getElementById("err");
- let resBox=document.getElementById("res");
 
  err.innerHTML="";
- resBox.innerHTML="";
 
  if(!pass){err.innerHTML="اكتب الرقم السري";return;}
  if(!file){err.innerHTML="اختر ملف";return;}
@@ -73,48 +70,74 @@ async function convertMP3(){
  let res=await fetch("/convert-mp3",{method:"POST",body:form});
 
  if(res.status==403){
-   err.innerHTML="كلمة السر غلط";
+   err.innerHTML="كلمة السر غير صحيحة";
    return;
  }
 
  let blob=await res.blob();
  let url=URL.createObjectURL(blob);
 
- resBox.innerHTML=`<a href="${url}" download="converted.mp3">تحميل MP3</a>`;
+ let a=document.createElement("a");
+ a.href=url;
+ a.download="audio.mp3";
+ a.click();
+}
+
+async function calc(){
+ let total=0;
+
+ for(let key in SUBJECTS){
+   let v=document.getElementsByName(key)[0].value;
+   if(v){
+     v=Math.max(0,Math.min(100,parseFloat(v)));
+     total+=v*SUBJECTS[key];
+   }
+ }
+
+ total=Math.min(total/TOTAL,100);
+
+ document.getElementById("resultValue").innerHTML=total.toFixed(2)+"%";
+ document.getElementById("resultBox").style.display="flex";
 }
 </script>
 </head>
 
 <body>
 
-<div class="box">
-<h3>🔒 تحويل MP3</h3>
+<button onclick="toggle('mp3Box')">🔒 MP3</button>
+
+<div id="mp3Box" class="box" style="display:none;">
+<h3>تحويل MP3</h3>
 <input id="pass" type="password" placeholder="الرقم السري">
 <div id="err" class="error"></div>
 <input id="file" type="file" accept="audio/*,video/*">
 <button onclick="convertMP3()">تحويل</button>
-<div id="res"></div>
 </div>
 
-<div class="box">
+<button onclick="toggle('calcBox')">🧮 الحاسبة</button>
+
+<div id="calcBox" class="box" style="display:none;">
 <h3>حاسبة النسبة</h3>
-<form action="/grades" method="post">
+
 {% for n,w in subjects.items() %}
 {{n}} ({{w}}%)
-<input type="number" name="{{n}}" oninput="limit(this)">
+<input name="{{n}}" type="number" oninput="limit(this)">
 {% endfor %}
-<button>احسب</button>
-</form>
+
+<button onclick="calc()">احسب</button>
 </div>
 
-{% if total %}
-<div id="r" class="resultBox">
+<div id="resultBox" class="resultBox">
 <div class="card">
-<h2>{{total}}%</h2>
-<button onclick="closeResult()">إغلاق</button>
+<h2 id="resultValue"></h2>
+<button onclick="document.getElementById('resultBox').style.display='none'">إغلاق</button>
 </div>
 </div>
-{% endif %}
+
+<script>
+const SUBJECTS = {{ subjects|tojson }};
+const TOTAL = {{ total }};
+</script>
 
 </body>
 </html>
@@ -122,43 +145,28 @@ async function convertMP3(){
 
 @app.route("/")
 def home():
-    return render_template_string(HTML, subjects=SUBJECTS, total=None)
-
-@app.route("/grades", methods=["POST"])
-def grades():
-    s=0
-    for k,w in SUBJECTS.items():
-        v=request.form.get(k)
-        if v:
-            v=max(0,min(float(v),100))
-            s+=v*w
-
-    total=min(s/TOTAL_WEIGHT,100)
-    return render_template_string(HTML, subjects=SUBJECTS, total=round(total,2))
+    return render_template_string(HTML, subjects=SUBJECTS, total=TOTAL)
 
 @app.route("/convert-mp3", methods=["POST"])
-def mp3():
-    if request.form.get("password")!=MP3_PASSWORD:
-        return "wrong",403
+def convert():
+    if request.form.get("password") != PASSWORD:
+        return "wrong", 403
 
-    f=request.files.get("file")
-    fid=str(uuid.uuid4())
-    inp=f"{UPLOAD_DIR}/{fid}"
-    out=f"{OUTPUT_DIR}/{fid}.mp3"
+    f = request.files.get("file")
+    fid = str(uuid.uuid4())
+
+    inp = f"{UPLOAD_DIR}/{fid}"
+    out = f"{OUTPUT_DIR}/{fid}.mp3"
+
     f.save(inp)
 
-    try:
-        subprocess.run(
-            ["ffmpeg","-y","-i",inp,"-vn","-acodec","copy",out],
-            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL
-        )
-    except:
-        subprocess.run(
-            ["ffmpeg","-y","-i",inp,"-vn","-acodec","libmp3lame","-b:a","128k",out],
-            stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL
-        )
+    subprocess.run(
+        ["ffmpeg","-y","-i",inp,"-vn","-acodec","libmp3lame","-b:a","128k",out],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL
+    )
 
-    return send_file(out, as_attachment=True, download_name="converted.mp3")
+    return send_file(out, as_attachment=True, download_name="audio.mp3")
 
-if __name__=="__main__":
+if __name__ == "__main__":
     app.run()
