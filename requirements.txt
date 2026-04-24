@@ -1,4 +1,2 @@
 flask
 gunicorn
-pillow
-img2pdf
