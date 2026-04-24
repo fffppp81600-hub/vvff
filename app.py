@@ -90,7 +90,7 @@ async function convertMP3(){
     return;
   }
   if(!file){
-    err.innerHTML="اختر ملف";
+    err.innerHTML="اختر ملف صوت أو فيديو";
     err.style.display="block";
     return;
   }
@@ -193,7 +193,7 @@ async function convertPDF(){
 <h2>🔒 تحويل MP3</h2>
 <input id="mp3pass" type="password" placeholder="الرقم السري">
 <div id="mp3err" class="error"></div>
-<input id="mp3file" type="file">
+<input id="mp3file" type="file" accept="audio/*,video/*">
 <button type="button" onclick="convertMP3()">تحويل</button>
 <div id="mp3result"></div>
 </div>
