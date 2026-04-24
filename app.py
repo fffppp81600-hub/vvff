@@ -1,4 +1,6 @@
-from flask import Flask, request, send_file, render_template_string
+<input type="number" name="{{name}}" min="0" max="100" step="0.01"
+oninput="if(this.value>100)this.value=100"
+placeholder="من 100">
 import os, uuid, subprocess
 from PIL import Image
 
