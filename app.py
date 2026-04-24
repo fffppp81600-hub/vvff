@@ -27,7 +27,6 @@ SUBJECTS = {
     "نشاط": 2.44,
     "حياتيه": 2.44
 }
-
 TOTAL_WEIGHT = sum(SUBJECTS.values())
 
 HTML = """
@@ -38,25 +37,28 @@ HTML = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rakan Tools</title>
 <style>
-body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:25px}
-.menu,.box{max-width:500px;margin:20px auto}
-.box{background:#181820;padding:22px;border-radius:22px;display:none}
-button{width:100%;padding:15px;margin-top:10px;border-radius:14px;border:0;background:#00ff99;font-weight:bold;font-size:16px}
-input{width:100%;padding:12px;margin-top:9px;border-radius:12px;border:0;box-sizing:border-box}
-.progress{height:14px;background:#333;margin-top:15px;border-radius:20px;overflow:hidden}
-.bar{height:100%;width:0;background:#00ff99;transition:.2s}
-.status{margin-top:12px;color:#ccc}
-.download{display:block;background:#00ff99;color:#000;padding:15px;border-radius:14px;text-decoration:none;font-weight:bold;margin-top:18px}
-.subject{text-align:right;margin-top:8px}
-.resultBox{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center}
-.card{background:#181820;padding:28px;border-radius:22px;width:85%;max-width:360px}
-.big{font-size:32px;color:#00ff99;font-weight:bold}
+body{font-family:Arial;background:#07080c;color:white;text-align:center;padding:18px}
+.menu{max-width:520px;margin:10px auto 18px;display:flex;gap:8px}
+.menu button{font-size:14px}
+.box{background:#171820;padding:24px;border-radius:24px;max-width:520px;margin:18px auto;display:none}
+button{width:100%;padding:15px;margin-top:12px;border-radius:16px;border:0;background:#00f59b;font-weight:bold;font-size:16px;cursor:pointer}
+input{width:100%;padding:14px;margin-top:10px;border-radius:14px;border:0;box-sizing:border-box;font-size:16px}
+.error{color:#ff4d4d;margin-top:8px;font-weight:bold;display:none}
+.status{margin-top:12px;color:#ccc;font-weight:bold}
+.progress{height:14px;background:#333;margin-top:14px;border-radius:20px;overflow:hidden;display:none}
+.bar{height:100%;width:0;background:#00f59b;transition:.25s}
+.download{display:block;background:#00f59b;color:#000;padding:15px;border-radius:16px;text-decoration:none;font-weight:bold;margin-top:18px}
+.subject{text-align:right;margin-top:10px}
+.resultBox{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:9}
+.card{background:#171820;padding:28px;border-radius:24px;width:85%;max-width:360px}
+.big{font-size:34px;color:#00f59b;font-weight:bold}
 </style>
 
 <script>
 function showBox(id){
   document.querySelectorAll('.box').forEach(b=>b.style.display='none');
   document.getElementById(id).style.display='block';
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 function limit(i){
@@ -68,66 +70,112 @@ function closeResult(){
   document.getElementById("resultBox").style.display="none";
 }
 
-window.onload=function(){showBox("{{active}}")}
+window.onload=function(){
+  showBox("{{active}}");
+}
 
-async function convertPDF(){
-  let files=document.getElementById("pdfFiles").files;
-  if(files.length===0){
-    alert("اختر الصور أول");
+async function convertMP3(){
+  let form = new FormData();
+  let pass = document.getElementById("mp3pass").value;
+  let file = document.getElementById("mp3file").files[0];
+  let err = document.getElementById("mp3err");
+  let result = document.getElementById("mp3result");
+
+  err.style.display="none";
+  result.innerHTML="";
+
+  if(!pass){
+    err.innerHTML="اكتب الرقم السري";
+    err.style.display="block";
+    return;
+  }
+  if(!file){
+    err.innerHTML="اختر ملف";
+    err.style.display="block";
     return;
   }
 
-  let form=new FormData();
-  for(let f of files){
-    form.append("images",f);
+  form.append("password", pass);
+  form.append("file", file);
+
+  result.innerHTML="<div class='status'>جاري التحويل...</div>";
+
+  let res = await fetch("/convert-mp3", {method:"POST", body:form});
+
+  if(res.status === 403){
+    err.innerHTML="كلمة السر غير صحيحة";
+    err.style.display="block";
+    result.innerHTML="";
+    return;
   }
 
-  let bar=document.getElementById("pdfBar");
-  let status=document.getElementById("pdfStatus");
-  let result=document.getElementById("pdfResult");
+  if(!res.ok){
+    err.innerHTML="فشل التحويل";
+    err.style.display="block";
+    result.innerHTML="";
+    return;
+  }
 
-  bar.style.width="0%";
+  let blob = await res.blob();
+  let url = URL.createObjectURL(blob);
+  result.innerHTML='<a class="download" href="'+url+'" download="converted.mp3">تنزيل MP3</a>';
+}
+
+async function convertPDF(){
+  let files = document.getElementById("pdfFiles").files;
+  let status = document.getElementById("pdfStatus");
+  let progress = document.getElementById("pdfProgress");
+  let bar = document.getElementById("pdfBar");
+  let result = document.getElementById("pdfResult");
+
+  if(files.length===0){
+    status.innerHTML="اختر الصور أول";
+    return;
+  }
+
+  let form = new FormData();
+  for(let f of files){form.append("images", f);}
+
   result.innerHTML="";
-  status.innerHTML="بدأ التحويل...";
+  progress.style.display="block";
+  bar.style.width="0%";
 
-  let seconds=Math.max(5, files.length * 2);
-  let progress=0;
+  let seconds = Math.max(8, files.length * 2);
+  let startSeconds = seconds;
+  status.innerHTML="باقي تقريباً " + seconds + " ثانية";
 
-  let timer=setInterval(()=>{
-    if(seconds>0) seconds--;
+  let timer = setInterval(()=>{
+    seconds--;
+    if(seconds < 0) seconds = 0;
 
-    if(progress < 90){
-      progress += 4;
-      bar.style.width = progress + "%";
+    let done = ((startSeconds - seconds) / startSeconds) * 90;
+    bar.style.width = done + "%";
+    status.innerHTML="باقي تقريباً " + seconds + " ثانية";
+
+    if(seconds === 0){
+      status.innerHTML="ثواني ويجهز...";
     }
-
-    status.innerHTML = "جاري تجهيز PDF... باقي تقريباً " + seconds + " ثانية";
   },1000);
 
   try{
-    let response = await fetch("/images-to-pdf", {
-      method:"POST",
-      body:form
-    });
-
+    let res = await fetch("/images-to-pdf", {method:"POST", body:form});
     clearInterval(timer);
 
-    if(!response.ok){
-      status.innerHTML="صار خطأ بالسيرفر، جرّب صور أقل";
+    if(!res.ok){
+      status.innerHTML="صار خطأ، جرّب صور أقل";
       return;
     }
 
-    let blob = await response.blob();
-    let url = window.URL.createObjectURL(blob);
+    let blob = await res.blob();
+    let url = URL.createObjectURL(blob);
 
     bar.style.width="100%";
     status.innerHTML="جاهز ✅";
-
-    result.innerHTML = '<a class="download" href="'+url+'" download="images.pdf">تنزيل PDF</a>';
+    result.innerHTML='<a class="download" href="'+url+'" download="images.pdf">تنزيل PDF</a>';
 
   }catch(e){
     clearInterval(timer);
-    status.innerHTML="فشل الاتصال، جرّب مرة ثانية";
+    status.innerHTML="فشل الاتصال";
   }
 }
 </script>
@@ -136,32 +184,31 @@ async function convertPDF(){
 <body>
 
 <div class="menu">
-<h2>اختر الخدمة</h2>
-<button onclick="showBox('mp3')">تحويل MP3 🔒</button>
-<button onclick="showBox('pdf')">صور إلى PDF ⚡</button>
-<button onclick="showBox('grades')">حاسبة النسبة</button>
+<button onclick="showBox('mp3')">MP3</button>
+<button onclick="showBox('pdf')">PDF</button>
+<button onclick="showBox('grades')">النسبة</button>
 </div>
 
 <div id="mp3" class="box">
-<h3>تحويل MP3</h3>
-<form action="/convert-mp3" method="post" enctype="multipart/form-data">
-<input type="password" name="password" placeholder="الرقم السري">
-<input type="file" name="file">
-<button type="submit">تحويل MP3</button>
-</form>
+<h2>🔒 تحويل MP3</h2>
+<input id="mp3pass" type="password" placeholder="الرقم السري">
+<div id="mp3err" class="error"></div>
+<input id="mp3file" type="file">
+<button type="button" onclick="convertMP3()">تحويل</button>
+<div id="mp3result"></div>
 </div>
 
 <div id="pdf" class="box">
-<h3>صور إلى PDF</h3>
-<input type="file" id="pdfFiles" accept="image/*" multiple>
+<h2>⚡ تحويل صور إلى PDF</h2>
+<input id="pdfFiles" type="file" accept="image/*" multiple>
 <button type="button" onclick="convertPDF()">تحويل PDF</button>
-<div class="progress"><div id="pdfBar" class="bar"></div></div>
+<div id="pdfProgress" class="progress"><div id="pdfBar" class="bar"></div></div>
 <div id="pdfStatus" class="status"></div>
 <div id="pdfResult"></div>
 </div>
 
 <div id="grades" class="box">
-<h3>حاسبة النسبة</h3>
+<h2>حاسبة النسبة</h2>
 <form action="/grades" method="post">
 {% for n,w in subjects.items() %}
 <div class="subject">
@@ -189,7 +236,7 @@ async function convertPDF(){
 
 @app.route("/")
 def home():
-    return render_template_string(HTML, subjects=SUBJECTS, total=None, active="pdf")
+    return render_template_string(HTML, subjects=SUBJECTS, total=None, active="mp3")
 
 @app.route("/grades", methods=["POST"])
 def grades():
@@ -199,18 +246,17 @@ def grades():
         if v:
             v = max(0, min(float(v), 100))
             s += v * w
-
     total = min(s / TOTAL_WEIGHT, 100)
     return render_template_string(HTML, subjects=SUBJECTS, total=round(total, 2), active="grades")
 
 @app.route("/convert-mp3", methods=["POST"])
 def mp3():
     if request.form.get("password") != MP3_PASSWORD:
-        return "الرقم السري غلط", 403
+        return "wrong password", 403
 
     f = request.files.get("file")
     if not f:
-        return "اختر ملف", 400
+        return "no file", 400
 
     fid = str(uuid.uuid4())
     inp = os.path.join(UPLOAD_DIR, fid)
@@ -236,16 +282,15 @@ def mp3():
         if os.path.exists(inp):
             os.remove(inp)
 
-    return send_file(out, as_attachment=True, download_name="converted.mp3")
+    return send_file(out, as_attachment=True, download_name="converted.mp3", mimetype="audio/mpeg")
 
 @app.route("/images-to-pdf", methods=["POST"])
 def pdf():
     files = request.files.getlist("images")
     if not files:
-        return "مافي صور", 400
+        return "no images", 400
 
     imgs = []
-
     try:
         for f in files:
             img = Image.open(f.stream)
@@ -263,9 +308,8 @@ def pdf():
             as_attachment=True,
             download_name="images.pdf"
         )
-
-    except Exception as e:
-        return "فشل تحويل الصور", 500
+    except:
+        return "failed", 500
 
 if __name__ == "__main__":
     app.run()
