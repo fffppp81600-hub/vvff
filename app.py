@@ -2,7 +2,7 @@ from flask import Flask, request, send_file, render_template_string
 import os, uuid, subprocess
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
+app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
@@ -17,19 +17,20 @@ HTML = """
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MP3 Converter</title>
 <style>
-body{font-family:Arial;background:#111;color:white;text-align:center;padding:40px}
-.box{background:#1c1c1c;padding:30px;border-radius:18px;max-width:420px;margin:auto}
-input,button{width:100%;padding:14px;margin-top:15px;border-radius:12px;border:0}
-button{background:#00ff99;font-weight:bold;cursor:pointer}
+body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:40px}
+.box{background:#181820;padding:30px;border-radius:22px;max-width:430px;margin:auto}
+input,button{width:100%;padding:15px;margin-top:15px;border-radius:14px;border:0}
+button{background:#00ff99;font-weight:bold;font-size:16px;cursor:pointer}
+p{color:#aaa}
 </style>
 </head>
 <body>
 <div class="box">
 <h1>حوّل إلى MP3</h1>
-<p>ارفع مقطع 5 دقايق أو أقل</p>
+<p>ارفع أي ملف، المهم يكون فيه صوت</p>
 <form action="/convert" method="post" enctype="multipart/form-data">
-<input type="file" name="file" accept="video/*,audio/*" required>
-<button type="submit">تحويل سريع</button>
+<input type="file" name="file" required>
+<button type="submit">تحويل MP3</button>
 </form>
 </div>
 </body>
@@ -42,12 +43,10 @@ def home():
 
 @app.route("/convert", methods=["POST"])
 def convert():
-    if "file" not in request.files:
-        return "مافي ملف", 400
+    file = request.files.get("file")
 
-    file = request.files["file"]
-    if file.filename == "":
-        return "اختر ملف", 400
+    if not file or file.filename == "":
+        return "اختر ملف أول", 400
 
     file_id = str(uuid.uuid4())
     input_path = os.path.join(UPLOAD_DIR, file_id + "_" + file.filename)
@@ -69,7 +68,7 @@ def convert():
     try:
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except:
-        return "فشل التحويل، جرّب ملف ثاني", 500
+        return "الملف ما فيه صوت أو صيغته ما تنفع", 400
     finally:
         if os.path.exists(input_path):
             os.remove(input_path)
