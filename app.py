@@ -37,6 +37,7 @@ HTML = """
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rakan Tools</title>
+
 <style>
 body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:25px}
 .menu,.box{max-width:500px;margin:20px auto}
@@ -65,6 +66,7 @@ function closeResult(){
 window.onload=function(){showBox("{{active}}")}
 </script>
 </head>
+
 <body>
 
 <div class="menu">
@@ -79,7 +81,7 @@ window.onload=function(){showBox("{{active}}")}
 <form action="/convert-mp3" method="post" enctype="multipart/form-data">
 <input type="password" name="password" placeholder="الرقم السري" required>
 <input type="file" name="file" required>
-<button type="submit">تحويل MP3</button>
+<button type="submit">تحويل</button>
 </form>
 </div>
 
@@ -97,7 +99,7 @@ window.onload=function(){showBox("{{active}}")}
 {% for name, weight in subjects.items() %}
 <div class="subject">
 {{name}} ({{weight}}%)
-<input type="number" name="{{name}}" min="0" max="100" step="0.01" placeholder="درجتك من 100" oninput="limitGrade(this)">
+<input type="number" name="{{name}}" min="0" max="100" step="0.01" oninput="limitGrade(this)">
 </div>
 {% endfor %}
 <button type="submit">احسب</button>
@@ -125,28 +127,20 @@ def home():
 @app.route("/grades", methods=["POST"])
 def grades():
     weighted_sum = 0
-
     for subject, weight in SUBJECTS.items():
         val = request.form.get(subject)
         if val:
-            grade = float(val)
-            grade = max(0, min(grade, 100))
+            grade = max(0, min(float(val), 100))
             weighted_sum += grade * weight
 
     total = weighted_sum / TOTAL_WEIGHT
     total = min(total, 100)
 
-    return render_template_string(
-        HTML,
-        subjects=SUBJECTS,
-        total=round(total, 2),
-        active="grades"
-    )
+    return render_template_string(HTML, subjects=SUBJECTS, total=round(total, 2), active="grades")
 
 @app.route("/convert-mp3", methods=["POST"])
 def convert_mp3():
-    password = request.form.get("password")
-    if password != MP3_PASSWORD:
+    if request.form.get("password") != MP3_PASSWORD:
         return "الرقم السري غلط", 403
 
     file = request.files.get("file")
@@ -154,101 +148,51 @@ def convert_mp3():
         return "اختر ملف", 400
 
     fid = str(uuid.uuid4())
-    inp = f"uploads/{fid}_{file.filename}"
-    out = f"outputs/{fid}.mp3"
-
+    inp = f"{UPLOAD_DIR}/{fid}_{file.filename}"
+    out = f"{OUTPUT_DIR}/{fid}.mp3"
     file.save(inp)
 
     try:
         subprocess.run(
-            ["ffmpeg", "-y", "-i", inp, "-vn", "-acodec", "libmp3lame", "-b:a", "192k", out],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            ["ffmpeg","-y","-i",inp,"-vn","-acodec","copy",out],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         )
     except:
-        return "فشل التحويل", 400
+        subprocess.run(
+            ["ffmpeg","-y","-i",inp,"-vn","-acodec","libmp3lame","-b:a","128k",out],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
     finally:
         if os.path.exists(inp):
             os.remove(inp)
 
     return render_template_string("""
-    <html lang="ar" dir="rtl">
-    <head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-    body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:40px}
-    a{display:block;background:#00ff99;color:#000;padding:16px;border-radius:14px;text-decoration:none;font-weight:bold;margin-top:20px}
-    </style></head>
-    <body>
     <h2>تم التحويل ✅</h2>
-    <a href="/download/{{filename}}" download>تنزيل MP3</a>
-    </body></html>
-    """, filename=fid + ".mp3")
+    <a href="/download/{{f}}" download>تنزيل MP3</a>
+    """, f=fid + ".mp3")
 
 @app.route("/images-to-pdf", methods=["POST"])
 def images_to_pdf():
     files = request.files.getlist("images")
-    if not files:
-        return "اختر صور", 400
-
     fid = str(uuid.uuid4())
-    out = f"outputs/{fid}.pdf"
+    out = f"{OUTPUT_DIR}/{fid}.pdf"
+
     imgs = []
+    for f in files:
+        img = ImageOps.exif_transpose(Image.open(f.stream)).convert("RGB")
+        imgs.append(img)
 
-    try:
-        for f in files:
-            img = Image.open(f.stream)
-            img = ImageOps.exif_transpose(img)
-            img = img.convert("RGB")
-            imgs.append(img)
-
-        if not imgs:
-            return "اختر صور صحيحة", 400
-
-        imgs[0].save(out, "PDF", save_all=True, append_images=imgs[1:])
-
-    except:
-        return "فشل تحويل الصور", 400
+    imgs[0].save(out, "PDF", save_all=True, append_images=imgs[1:])
 
     return render_template_string("""
-    <html lang="ar" dir="rtl">
-    <head><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-    body{font-family:Arial;background:#0b0b0f;color:white;text-align:center;padding:40px}
-    a{display:block;background:#00ff99;color:#000;padding:16px;border-radius:14px;text-decoration:none;font-weight:bold;margin-top:20px}
-    p{color:#aaa}
-    </style></head>
-    <body>
-    <h2>تم إنشاء ملف PDF ✅</h2>
-    <p>إذا فتح لك معاينة، اضغط مشاركة ثم حفظ في الملفات</p>
-    <a href="/download/{{filename}}" download>تنزيل PDF</a>
-    </body></html>
-    """, filename=fid + ".pdf")
+    <h2>تم إنشاء PDF ✅</h2>
+    <a href="/download/{{f}}" download>تنزيل PDF</a>
+    """, f=fid + ".pdf")
 
-@app.route("/download/<filename>")
-def download(filename):
-    path = os.path.join(OUTPUT_DIR, filename)
-
-    if not os.path.exists(path):
-        return "الملف غير موجود", 404
-
-    if filename.endswith(".pdf"):
-        return send_file(
-            path,
-            as_attachment=True,
-            download_name="images.pdf",
-            mimetype="application/pdf"
-        )
-
-    if filename.endswith(".mp3"):
-        return send_file(
-            path,
-            as_attachment=True,
-            download_name="converted.mp3",
-            mimetype="audio/mpeg"
-        )
-
-    return "ملف غير معروف", 400
+@app.route("/download/<f>")
+def download(f):
+    path = os.path.join(OUTPUT_DIR, f)
+    return send_file(path, as_attachment=True)
 
 if __name__ == "__main__":
     app.run()
